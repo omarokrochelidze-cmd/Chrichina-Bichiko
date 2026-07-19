@@ -1,0 +1,23 @@
+# ლოკალური სარეზერვო ასლები — ისინი მხოლოდ იმიტომ არსებობდნენ, რომ პროექტს git
+# არ ჰქონდა. ახლა თავად ისტორიაა undo-გზა, ამიტომ რეპოში აზრი აღარ აქვთ.
+chrichina.original.html
+chrichina.pre-buttons.html
+chrichina.pre-split.html
+
+# AI-ასისტენტის ლოკალური კონფიგი და პროექტის შიდა სამუშაო ინსტრუქციები
+CLAUDE.md
+.claude/
+
+# ტესტის დროებითი ნაშთები
+drive.py
+verify.py
+*.pyc
+__pycache__/
+
+# OS / რედაქტორი
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/

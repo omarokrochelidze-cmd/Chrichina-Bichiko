@@ -1,0 +1,358 @@
+/* ============================================================================
+   ჭრიჭინა — სტილები
+   ----------------------------------------------------------------------------
+   აქ მხოლოდ *დისკრეტული, სცენარიანი* ვიზუალი ცხოვრობს: მდგომარეობის კლასები
+   (#game.state-idle|pour|recover|frozen), სცენების crossfade, წვიმის ფენები,
+   ყინულის ბეჭედი, მოდალები და portrait-განლაგება. ახალი სცენარიანი ეფექტი
+   სჯობს აქ დაიწეროს კლასზე მიბმულად, ვიდრე JS-ში იანიმირდეს.
+
+   უწყვეტი, კადრობრივი ეფექტები (მულტიპლიკატორის ტექსტი, cold/frost-ის
+   გამჭვირვალობა, --rain, ცახცახი) chrichina.js-ის render()-ს ეკუთვნის.
+
+   ⚠ .scene-ის `transform` აქ არასოდეს გაანიმირო: render() მას ყოველ კადრზე
+   inline-ად წერს ცახცახისთვის, CSS @keyframes კი inline სტილს კასკადში ჯობნის
+   და ცახცახს ჩუმად კლავს. ატმოსფერული დრიფტი სწორედ ამიტომ ცალკე
+   `scale`/`translate` თვისებებზე ზის — ისინი transform-თან კომპოზირდება.
+
+   დაკავშირებული ფაილები: chrichina.html (მარკაპი), chrichina.js (ლოგიკა).
+   ============================================================================ */
+
+:root{
+  --gold:#ffcf5c;                    /* ფული: მონეტა, ბალანსი, Cash Out კონტური */
+  --panel-blue:#0a3d66;
+  /* ---- ბრტყელი UI ნაკრები: ყველა ღილაკი მხოლოდ აქედან იკვებება ----
+     ფონი ფოტოა, ამიტომ „ბრტყელი“ აქ ნიშნავს მკვრივ ერთგვაროვან შევსებას
+     + თმისოდენა კონტურს — გრადიენტების, ბეველებისა და glow-ის გარეშე.
+     ორი აქცენტი: ოქრო = ფული/ფსონი, ყინული = მოქმედება/ჩართული. */
+  --ui-fill:rgba(11,20,36,.62);      /* ჩვეულებრივი ღილაკი */
+  --ui-fill-hi:rgba(17,30,52,.82);   /* დაჭერისას */
+  --ui-line:rgba(255,255,255,.20);   /* კონტური */
+  --ui-line-hi:rgba(255,255,255,.42);
+  --ui-txt:#eef6ff;
+  --ui-ink:#0b2438;                  /* მუქი ტექსტი ღია აქცენტზე */
+  --ui-act:#f3c352;                  /* მთავარი მოქმედება (უმოქმედო) */
+  --ui-act-hold:#bfe6ff;             /* მთავარი მოქმედება (გეჭირავს) */
+  --ui-accent-d:#1668ad;             /* აქცენტი ღია ფონზე — მოდალი */
+  /* მთავარი ღილაკის ზომა ერთ ადგილასაა: portrait-ში ქვედა სვეტი (ღილაკი →
+     ფსონი → Cash Out) ამ მნიშვნელობიდან ითვლის თავის სართულებს, რომ ვიწრო
+     ეკრანზე ერთმანეთს ვერასდროს გადააფარონ. */
+  --btn:clamp(104px,20vmin,168px);
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b1020;
+  font-family:'Segoe UI','Sylfaen','Noto Sans Georgian',system-ui,sans-serif;
+  user-select:none;-webkit-user-select:none;touch-action:none;}
+#game{position:fixed;inset:0;overflow:hidden;}
+
+/* ---------- სცენები (AI background layers, crossfade) ---------- */
+#stage{position:absolute;inset:0;overflow:hidden;}
+.scene{position:absolute;inset:-3%;background-size:cover;background-position:center;
+  opacity:0;transition:opacity .7s ease,filter .6s ease;will-change:opacity,transform,scale;
+  filter:brightness(1.1) saturate(1.08) contrast(1.02);}
+.scene.on{opacity:1;}
+/* ვიდეო ზუსტად ავსებს თავის .scene-ს, ანუ იმავე დრიფტსა და ფილტრებს იღებს, რაც ფონს.
+   object-position ემთხვევა .scene-ის background-position-ს (იხ. portrait media query). */
+.scenevid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:center;display:block;pointer-events:none;}
+
+/* ატმოსფერული დრიფტი. scale/translate ცალკე თვისებებია და არა transform, რადგან
+   render() transform-ს ყოველ კადრზე წერს ცახცახისთვის — ისინი კომპოზირდება, არ ეჯახება.
+   ანიმაცია ოთხივე ფენას ადევს (და არა მარტო .on-ს), რომ crossfade-ის დროს ორივე
+   მხარე ერთსა და იმავე მასშტაბზე იყოს. inset:-3% იძლევა საკმარის მარაგს. */
+@keyframes sceneDrift{
+  from{scale:1;translate:0 0;}
+  to  {scale:1.045;translate:-.9% -.6%;}
+}
+@media (prefers-reduced-motion: no-preference){
+  .scene{animation:sceneDrift 32s ease-in-out infinite alternate;}
+}
+
+/* ---------- ატმოსფერული overlays ---------- */
+#ovCold{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(120% 90% at 30% 55%,rgba(120,200,255,0) 30%,rgba(80,160,240,.55) 100%);
+  mix-blend-mode:screen;transition:opacity .3s linear;}
+#ovFrost{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .6s ease;
+  background:
+    radial-gradient(130% 100% at 50% 50%,rgba(255,255,255,0) 45%,rgba(210,238,255,.75) 100%);}
+#ovFrost::before{content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(230,246,255,.6),rgba(230,246,255,0) 22%);}
+#flash{position:absolute;inset:0;pointer-events:none;opacity:0;background:#fff;}
+#flash.gold{background:radial-gradient(circle at 30% 55%,rgba(255,220,130,.9),rgba(255,200,90,0) 60%);}
+/* width/height აუცილებელია: <canvas> replaced ელემენტია და აბსოლუტურ პოზიციაში
+   `inset:0`-ს მარტო არ უსმენს — width:auto მის საკუთარ (300×150) ზომაზე რჩება,
+   ანუ ტილო ეკრანის მარცხენა ზედა კუთხეში იკეცება და ყველა ნაწილაკი იქ ხატულობს. */
+#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+
+/* ---------- წვიმა (სუფთა HTML/CSS, მხოლოდ pour-ის დროს) ---------- */
+/* სამი ფენა = სიღრმე: შორეული წვრილი და ნელი, ახლობელი მსხვილი და სწრაფი.
+   თითო ფენა ერთი div-ია — წვეთები radial-gradient-ის გამეორებული "ფილაა",
+   ამიტომ ათასობით DOM-კვანძი არ გვჭირდება. */
+#rain{position:absolute;inset:0;overflow:hidden;pointer-events:none;
+  opacity:0;transition:opacity .6s ease;animation:rainGust 7s ease-in-out infinite;}
+#game.state-pour #rain{opacity:1;}
+
+/* ღრუბლიანი დაბინდვა უკანა ფონზე */
+#rain::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(120% 90% at 50% 25%,rgba(8,26,54,0) 40%,rgba(8,24,50,.38) 100%);}
+/* ნისლი მიწასთან */
+#rain::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26%;
+  background:linear-gradient(180deg,rgba(190,225,255,0),rgba(190,225,255,.20));
+  animation:rainMist 3.2s ease-in-out infinite;}
+
+.rlayer{position:absolute;inset:-40% -30%;background-repeat:repeat;will-change:transform;}
+/* --tilt = ქარის დახრა, --tile = ფილის სიმაღლე (ერთი ციკლის გადაადგილება) */
+.rlayer.r1{--tilt:9deg;  --tile:120px; animation:rainFall .30s linear infinite;
+  background-size:64px 120px;
+  background-image:
+    radial-gradient(.7px 7px at 10px 18px,rgba(205,235,255,.60),transparent),
+    radial-gradient(.7px 6px at 32px 54px,rgba(205,235,255,.50),transparent),
+    radial-gradient(.6px 6px at 52px 90px,rgba(205,235,255,.42),transparent),
+    radial-gradient(.6px 5px at 20px 112px,rgba(205,235,255,.35),transparent);}
+.rlayer.r2{--tilt:11deg; --tile:170px; animation:rainFall .22s linear infinite;
+  background-size:96px 170px;
+  background-image:
+    radial-gradient(.9px 11px at 16px 26px,rgba(215,242,255,.80),transparent),
+    radial-gradient(.9px 10px at 50px 76px,rgba(215,242,255,.68),transparent),
+    radial-gradient(.85px 10px at 82px 126px,rgba(215,242,255,.58),transparent),
+    radial-gradient(.8px 9px at 34px 156px,rgba(215,242,255,.50),transparent);}
+/* ახლო ფენა თანდათან ძლიერდება — --rain-ს JS წერს wet-იდან */
+.rlayer.r3{--tilt:13deg; --tile:260px; animation:rainFall .17s linear infinite;
+  opacity:var(--rain,0);filter:blur(.6px);
+  background-size:150px 260px;
+  background-image:
+    radial-gradient(1.2px 17px at 26px 40px,rgba(230,248,255,.95),transparent),
+    radial-gradient(1.1px 16px at 88px 140px,rgba(230,248,255,.82),transparent),
+    radial-gradient(1px 14px at 132px 230px,rgba(230,248,255,.68),transparent);}
+
+@keyframes rainFall{
+  from{transform:rotate(var(--tilt)) translate3d(0,0,0);}
+  to  {transform:rotate(var(--tilt)) translate3d(0,var(--tile),0);}
+}
+@keyframes rainGust{0%,100%{transform:translateX(0);}50%{transform:translateX(1.5%);}}
+@keyframes rainMist{0%,100%{opacity:.55;}50%{opacity:1;}}
+
+/* წვიმის დროს სცენა ცივდება და მუქდება */
+#game.state-pour .scene{filter:brightness(.93) saturate(.90) contrast(1.06) hue-rotate(-6deg);}
+
+@media (prefers-reduced-motion:reduce){
+  #rain,.rlayer{animation:none!important;}
+}
+
+/* ---------- ზედა ზოლი ---------- */
+.top{position:absolute;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;
+  justify-content:space-between;padding:2.2vmin 2.4vmin;pointer-events:none;}
+.iconbtn{pointer-events:auto;width:8.2vmin;height:8.2vmin;min-width:42px;min-height:42px;
+  max-width:58px;max-height:58px;border-radius:50%;cursor:pointer;padding:0;
+  border:1px solid var(--ui-line);background:var(--ui-fill);
+  color:var(--ui-txt);font-size:4.2vmin;display:grid;place-items:center;line-height:1;
+  transition:transform .12s,background .15s,border-color .15s;}
+.iconbtn:active{transform:scale(.92);background:var(--ui-fill-hi);border-color:var(--ui-line-hi);}
+.balpill{pointer-events:auto;display:flex;align-items:center;gap:1.4vmin;
+  padding:1.1vmin 2.2vmin;border-radius:999px;border:1px solid var(--ui-line);
+  background:var(--ui-fill);color:var(--ui-txt);
+  font-weight:700;font-size:clamp(13px,3vmin,20px);letter-spacing:.01em;}
+.balpill .star{width:3.6vmin;height:3.6vmin;min-width:20px;min-height:20px;border-radius:50%;
+  background:var(--gold);display:grid;place-items:center;
+  color:var(--ui-ink);font-size:2.2vmin;}
+.top .right{display:flex;align-items:center;gap:1.6vmin;pointer-events:none;}
+
+/* ---------- მულტიპლიკატორი ---------- */
+#multWrap{position:absolute;z-index:16;top:11.5%;left:50%;transform:translateX(-50%);
+  text-align:center;pointer-events:none;transition:transform .2s;}
+#mult{font-weight:900;font-size:clamp(52px,14vmin,150px);line-height:1;letter-spacing:.01em;
+  background:linear-gradient(180deg,#f2fbff,#cdecff 38%,#8fd0ff 68%,#4aa8f0);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  -webkit-text-stroke:2px rgba(18,64,115,.5);
+  filter:drop-shadow(0 3px 0 rgba(15,55,100,.55)) drop-shadow(0 0 26px rgba(130,205,255,.55));
+  transition:opacity .3s;}
+#mult.idle{opacity:.45;}
+
+/* ---------- ფსონის სტეპერი (▲ / მონეტა / ▼) ---------- */
+#betStrip{position:absolute;z-index:16;top:50%;right:20.5%;transform:translateY(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:1.5vmin;}
+/* მონეტა ოქროს კონტურით — ერთადერთი ადგილი, სადაც ოქრო „ფულს“ ნიშნავს */
+.coin{width:12vmin;height:12vmin;min-width:60px;min-height:60px;max-width:92px;max-height:92px;
+  border-radius:50%;display:grid;place-items:center;position:relative;
+  border:2px solid var(--gold);background:var(--ui-fill);
+  transition:opacity .2s,border-color .2s,background .2s;}
+.coin .amt{font-weight:800;color:#fff;font-size:clamp(14px,3.3vmin,24px);line-height:1;}
+.coin .cur{font-weight:600;color:var(--gold);font-size:clamp(8px,1.7vmin,12px);margin-top:.4vmin;
+  letter-spacing:.1em;}
+/* ბალანსი ფსონზე ნაკლებია — მონეტა უბრალოდ ჩამქრალი და ნეიტრალურკონტურიანი ხდება */
+.coin.poor{opacity:.4;border-color:var(--ui-line);}
+.coin.poor .cur{color:var(--ui-txt);}
+.stepBtn{width:7vmin;height:7vmin;min-width:34px;min-height:34px;max-width:54px;max-height:54px;
+  border-radius:50%;cursor:pointer;padding:0;display:grid;place-items:center;
+  border:1px solid var(--ui-line);color:var(--ui-txt);
+  font-size:clamp(10px,2vmin,15px);line-height:1;background:var(--ui-fill);
+  transition:transform .12s,background .15s,border-color .15s,opacity .2s;}
+.stepBtn:active{transform:scale(.9);background:var(--ui-fill-hi);border-color:var(--ui-line-hi);}
+.stepBtn:disabled{opacity:.22;cursor:default;pointer-events:none;}
+#betUp::before{content:"\25B2";}
+#betDown::before{content:"\25BC";}
+
+/* ---------- Cash Out — ჩარჩოს გარეშე, მხოლოდ ცოცხალი თანხა ----------
+   ყოფილი „ყინულის ბარათი“ (მინის ფონი, თეთრი კონტური და ::after-ის სოსულები,
+   რომლებიც ქვემოთ თეთრი შტრიხების რიგად იკითხებოდა) მოხსნილია. რჩება მხოლოდ
+   ციფრი — იგივე ლოგიკა, რაც მოგების #float-ს აქვს, ოღონდ ცივი ფერით. */
+/* ---------- Cash Out — ოქროსკონტურიანი ბარათი, ფსონის მონეტის ენაზე ----------
+   სიგანე განზრახ არ არის მითითებული: აბსოლუტური ელემენტი შიგთავსზე იკუმშება და,
+   რადგან მარჯვნიდანაა მიმაგრებული, დიდი თანხისას მარცხნივ იზრდება — ანუ
+   „3000.00 GEL“-საც კი ვერასდროს გასცდება ეკრანის კიდეს. */
+/* landscape-ში ბარათი ფსონის სვეტის ზემოთ დგას (ძველ top:31%-ზე მას ეჯახებოდა,
+   რაც ჩარჩოს გარეშე თითქმის არ ჩანდა) — ზუსტად იმ კუთხეში, რომელიც ლოგოს
+   წაშლამ გაათავისუფლა, ბალანსის pill-ის ქვეშ. */
+#cashPanel{position:absolute;z-index:16;top:11%;right:1.8%;
+  padding:1.5vmin 2.8vmin 1.8vmin;border-radius:14px;text-align:center;pointer-events:none;
+  border:2px solid var(--gold);background:var(--ui-fill);
+  opacity:0;transform:translateY(-6px);transition:opacity .35s,transform .35s;}
+#cashPanel.show{opacity:1;transform:none;}
+#cashPanel .lbl{font-weight:600;color:var(--gold);letter-spacing:.16em;
+  font-size:clamp(9px,1.9vmin,13px);text-transform:uppercase;}
+#cashVal{font-weight:800;font-size:clamp(24px,5.4vmin,40px);line-height:1.1;
+  white-space:nowrap;color:#fff;margin-top:.3vmin;}
+
+/* ---------- მთავარი ღილაკი ---------- */
+#btnWrap{position:absolute;z-index:17;right:5.5%;bottom:9%;text-align:center;}
+/* ერთი ბრტყელი დისკი. ფერი თავად არის მდგომარეობა: ოქრო = დააჭირე,
+   ყინული = გიჭირავს. ხატულა მუქია, რომ ორივე ღია ფონზე იკითხებოდეს. */
+#btnMain{width:var(--btn);height:var(--btn);
+  border-radius:50%;cursor:pointer;position:relative;border:none;padding:0;
+  background:var(--ui-act);display:grid;place-items:center;
+  transition:transform .12s,background .25s;}
+/* ერთადერთი დეკორაცია — თხელი გარე რგოლი, უჩრდილოდ */
+#btnMain::before{content:"";position:absolute;inset:-9px;border-radius:50%;
+  border:2px solid var(--ui-act);animation:ring 2.6s ease-in-out infinite;}
+@keyframes ring{0%,100%{opacity:.30;transform:scale(1);}50%{opacity:.75;transform:scale(1.05);}}
+#btnMain svg{width:46%;height:46%;fill:var(--ui-ink);transition:fill .25s;}
+#btnMain:active,#btnMain.held{transform:scale(.94);background:var(--ui-act-hold);}
+#btnMain.held svg{fill:var(--panel-blue);}
+/* გეჭირავს — რგოლი წყვეტს პულსირებას და მყარ ყინულის კონტურად რჩება */
+#btnMain.held::before{animation:none;opacity:1;border-color:var(--ui-act-hold);}
+#btnLbl{margin-top:1.4vmin;font-weight:700;color:#fff;font-size:clamp(13px,3vmin,22px);
+  letter-spacing:.01em;text-shadow:0 1px 4px rgba(0,0,0,.65);}
+
+/* ---------- გაიყინა stamp + reset ---------- */
+/* transition ბაზისურ წესზეა და არა .show-ზე: კლასის მოხსნისას ელემენტი ბაზისს
+   უბრუნდება და, თუ transition იქ არ წერია, ბეჭედი უცებ ქრება fade-ის გარეშე. */
+#stamp{position:absolute;z-index:19;top:34%;left:50%;transform:translate(-50%,-50%) rotate(-9deg) scale(.4);
+  opacity:0;pointer-events:none;font-weight:900;font-size:clamp(40px,12vmin,120px);
+  color:#eaf9ff;-webkit-text-stroke:3px #3f9ae8;
+  text-shadow:0 0 30px rgba(140,210,255,.9),0 6px 0 rgba(30,90,150,.5);
+  transition:opacity .35s ease,transform .45s cubic-bezier(.2,1.5,.4,1);}
+#stamp.show{opacity:1;transform:translate(-50%,-50%) rotate(-9deg) scale(1);}
+/* ---------- მოგება: დიდი ციფრი, ჩარჩოს გარეშე, ბალანსისკენ გაფრენით ----------
+   ჩარჩო/პანელი აღარაა — თანხა ჯერ ცენტრში ამოხტება, შემდეგ ბალანსის pill-ისკენ
+   მიფრინავს და იქ ქრება. ფრენის ვექტორს (--fx/--fy) JS წერს ცოცხალი
+   getBoundingClientRect-ებიდან, ამიტომ landscape-შიც და portrait-შიც ზუსტად
+   pill-ს ხვდება, მიუხედავად იმისა, სად გადაიწია მან media query-მ. */
+#float{position:absolute;z-index:19;left:50%;top:52%;transform:translate(-50%,-50%);
+  font-weight:800;font-size:clamp(30px,9vmin,80px);line-height:1;white-space:nowrap;
+  color:#ffd76a;text-shadow:0 3px 14px rgba(0,0,0,.55),0 0 2px rgba(0,0,0,.3);
+  opacity:0;pointer-events:none;will-change:transform,opacity;}
+/* ორი პარალელური ანიმაცია: მოძრაობა და გაქრობა ცალ-ცალკე დროზე დგას.
+   ერთ keyframes-ში რომ ყოფილიყო, გაქრობაც ფრენის ეასინგს დაემორჩილებოდა და
+   ციფრი გზის შუაზე იკითხებადობას კარგავდა. */
+#float.play{animation:floatFly 1.5s cubic-bezier(.25,.85,.4,1) forwards,
+                      floatFade 1.5s linear forwards;}
+@keyframes floatFly{
+  0%  {transform:translate(-50%,-50%) scale(.5);}
+  12% {transform:translate(-50%,-50%) scale(1.14);}
+  24% {transform:translate(-50%,-50%) scale(1);}
+  /* მოსვენება — რომ ციფრი წაიკითხო, მერე აჩქარებით მიფრინდეს */
+  46% {transform:translate(-50%,-50%) scale(1);
+       animation-timing-function:cubic-bezier(.55,0,.85,.45);}
+  100%{transform:translate(-50%,-50%) translate(var(--fx,0px),var(--fy,-60px)) scale(.3);}
+}
+@keyframes floatFade{
+  0%{opacity:0;} 10%,80%{opacity:1;} 100%{opacity:0;}
+}
+/* დაჯდომისას ბალანსი ერთხელ „აიღებს სუნთქვას“ */
+@keyframes balHit{0%,100%{transform:scale(1);}38%{transform:scale(1.11);}}
+.balpill.hit{animation:balHit .42s ease-out;}
+
+/* ---------- toast (no funds) ---------- */
+#toast{position:absolute;z-index:22;left:50%;top:24%;transform:translateX(-50%);
+  background:rgba(20,30,50,.9);color:#ffd9d0;border:1px solid rgba(255,150,140,.5);
+  padding:1.4vmin 3vmin;border-radius:12px;font-weight:700;font-size:clamp(12px,2.6vmin,17px);
+  opacity:0;pointer-events:none;transition:opacity .3s;white-space:nowrap;}
+#toast.show{opacity:1;}
+
+/* ---------- modal / popover ---------- */
+.scrim{position:absolute;inset:0;z-index:30;background:rgba(6,10,22,.55);
+  display:none;place-items:center;padding:5vmin;
+  -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);}
+.scrim.show{display:grid;}
+/* body-ს touch-action:none აქვს (თამაშისთვის), რაც ფურცლის გადაფურცვლასაც ბლოკავს —
+   დაბალ ეკრანზე გრძელი ტექსტი მიუწვდომელი რჩებოდა. აქ ვერტიკალს ვაბრუნებთ. */
+.sheet{touch-action:pan-y;-webkit-overflow-scrolling:touch;
+  width:min(92vw,460px);max-height:86vh;overflow:auto;border-radius:18px;
+  border:2px solid #f0d9a0;color:#3a2814;
+  background:linear-gradient(180deg,#fff6e6,#f3e3c6);
+  box-shadow:0 20px 60px rgba(0,0,0,.6);padding:5vmin 5.5vmin;}
+.sheet h2{margin:.2em 0 .6em;font-size:clamp(20px,5vmin,30px);color:#7a4a10;}
+.sheet p,.sheet li{font-size:clamp(13px,3vmin,17px);line-height:1.5;margin:.5em 0;}
+.sheet ol{padding-left:1.2em;}
+.row{display:flex;align-items:center;justify-content:space-between;gap:2vmin;
+  padding:1.4vmin 0;border-top:1px solid rgba(120,80,30,.2);}
+/* მოდალის ფურცელი ღიაა, ამიტომ აქ აქცენტის მუქი ვარიანტი მუშაობს */
+.btn{cursor:pointer;border:none;border-radius:10px;padding:1.5vmin 3.2vmin;font-weight:700;
+  font-size:clamp(13px,3vmin,17px);color:#fff;background:var(--ui-accent-d);
+  transition:transform .12s,opacity .15s;}
+.btn.ghost{background:transparent;color:var(--ui-accent-d);
+  border:1.5px solid var(--ui-accent-d);padding:calc(1.5vmin - 1.5px) calc(3.2vmin - 1.5px);}
+.btn:active{transform:scale(.97);opacity:.85;}
+.toggle{width:56px;height:30px;border-radius:999px;border:none;cursor:pointer;position:relative;
+  background:rgba(58,40,20,.22);transition:background .2s;}
+.toggle.on{background:var(--ui-accent-d);}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+  background:#fff;transition:left .2s;}
+.toggle.on::after{left:29px;}
+.closeX{float:right;cursor:pointer;font-size:5vmin;line-height:.6;color:#7a4a10;
+  border:none;background:none;opacity:.65;transition:opacity .15s;}
+.closeX:active{opacity:1;}
+
+/* ---------- portrait / mobile ---------- */
+@media (orientation:portrait){
+  /* კაცი ახალ სცენებში კადრის ცენტრშია (ძველებში მარცხნივ იდგა და 36% მასზე იყო
+     მიმართული) — ჰორიზონტალურად ცენტრი გვჭირდება, ვერტიკალურად ოდნავ ზემოთ. */
+  .scene{background-position:50% 42%;}
+  .scenevid{object-position:50% 42%;}
+  /* ზედა ზოლი — აბსოლუტურად, რომ gear ყოველთვის ეტევოდეს */
+  .top{display:block;padding:0;}
+  #menuBtn{position:absolute;top:2.4vmin;left:3.5vw;}
+  #gearBtn{position:absolute;top:2.4vmin;right:3.5vw;}
+  .top .right{position:static;}
+  .balpill{position:absolute;top:3.2vmin;right:calc(3.5vw + 13vmin);
+    font-size:clamp(12px,3.6vw,16px);}
+  /* ქვედა სვეტი სამსართულიანია და თითოეული სართული წინაზე დგას:
+     ღილაკი (--btn + წარწერა) → ფსონის რიგი (--coin) → Cash Out.
+     ადრე #betStrip ეკრანის სიმაღლის პროცენტით იდგა (bottom:23%), ღილაკის
+     ზომა კი vmin-ია — ვიწრო და დაბალ ეკრანზე ისინი ერთმანეთს აწვებოდნენ.
+     clamp-ები ზუსტად იმეორებს ელემენტების ფაქტობრივ ზომებს, რომ ანგარიში
+     min/max ზღვრებზეც არ აცდეს. */
+  :root{
+    --btn:clamp(104px,26vmin,168px);
+    --coin:clamp(60px,17vw,82px);
+    --row-bet:calc(4.5% + var(--btn) + 10vmin);
+    --row-cash:calc(var(--row-bet) + var(--coin) + 5vmin);
+  }
+  #multWrap{top:15.5%;}
+  #mult{font-size:clamp(46px,17vw,92px);}
+  #cashPanel{top:auto;bottom:var(--row-cash);right:auto;left:50%;
+    transform:translateX(-50%);}
+  #cashPanel.show{transform:translateX(-50%);}
+  #cashVal{font-size:clamp(28px,8vw,44px);}
+  #betStrip{flex-direction:row;top:auto;bottom:var(--row-bet);right:auto;left:50%;
+    transform:translateX(-50%);gap:3.4vw;align-items:center;}
+  .coin{width:var(--coin);height:var(--coin);}
+  /* ჰორიზონტალურ რიგში ისრები გვერდებზეა: ◀ მონეტა ▶ */
+  .stepBtn{width:11vw;height:11vw;max-width:52px;max-height:52px;
+    font-size:clamp(11px,3vw,16px);}
+  #betDown{order:1;} #betCoin{order:2;} #betUp{order:3;}
+  #betUp::before{content:"\25B6";}
+  #betDown::before{content:"\25C0";}
+  #btnWrap{right:auto;left:50%;transform:translateX(-50%);bottom:4.5%;}
+  #float{left:50%;top:44%;}
+  #stamp{top:30%;}
+}
