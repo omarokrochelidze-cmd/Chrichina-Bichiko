@@ -4,13 +4,7 @@ chrichina.original.html
 chrichina.pre-buttons.html
 chrichina.pre-split.html
 
-# AI-ასისტენტის ლოკალური კონფიგი და პროექტის შიდა სამუშაო ინსტრუქციები
-CLAUDE.md
-.claude/
-
 # ტესტის დროებითი ნაშთები
-drive.py
-verify.py
 *.pyc
 __pycache__/
 

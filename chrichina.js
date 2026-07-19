@@ -22,7 +22,7 @@
 (function(){
   "use strict";
 
-  /* ---------- AI სცენების ასეტები (გარე ფაილები: scenes/) ---------- */
+  /* ---------- სცენების ასეტები (გარე ფაილები: scenes/) ---------- */
   const SCENES={idle:"scenes/idle.webp",wet:"scenes/wet.webp",frozen:"scenes/frozen.webp",win:"scenes/win.webp"};
   const layer={idle:document.getElementById('scIdle'),wet:document.getElementById('scWet'),
     frozen:document.getElementById('scFrozen'),win:document.getElementById('scWin')};
